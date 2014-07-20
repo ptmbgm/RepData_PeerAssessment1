@@ -5,6 +5,7 @@ In this project students were asked to download a data set comprised of readings
 
 ## Loading and preprocessing the data
 
+
 Data for the project was obtained via download as follows:
 
 ```{r}
@@ -16,6 +17,7 @@ write(activityDatedownloaded, file ="activityDatedownloaded")
 
 unzip("activity.zip")
 ```
+
 
 Once downloaded, the file was read into memory as follows:
 
@@ -93,6 +95,7 @@ for (j in GoodDays ) {
 		DayStep<- sum(stepsdata$steps,na.rm=TRUE)
 		GStepsPerDay <-c(GStepsPerDay,DayStep)
 }
+str(GStepsPerDay)
 ```
 This completes data preprocessing.
 
@@ -122,10 +125,25 @@ IntervalMeans<-numeric()
 for (j in 1:288) {
   jtotal<- 0
 	for (i in 1:53) { 
-		jtotal<- jtotal+ Gooddata$steps[j*i]}
+		jtotal<- jtotal+ Gooddata$steps[j+ 288*(i-1)]}
 	IntervalMeans<- c(IntervalMeans, as.numeric(jtotal)/53)
 }
 ```
+This calculation can be vectorized as follows:  Begin by attaching a column which numbers intervals throughout the day:
+```{r}
+IC<- rep(1:288, 53)
+IM<- cbind(Gooddata,IC)
+```
+Now use the interval location variable as an index:
+```{r}
+VIM<- sapply(1:288, function(x) mean(subset(IM,IM[,4]==x)[,1]))
+```
+Note that 
+```{r}
+max(abs(VIM-IntervalMeans))
+```
+thus providing a check that these calculations produce the same output.
+
 We can now produce the required time series:
 ```{r}
 plot(1:288, IntervalMeans, type="l", xlab="Interval number",
@@ -135,6 +153,10 @@ ylab="Average Number of Steps", main="Average Step Number by Interval")
 To find the interval which produces the largest number of steps, run
 ```{r}
 which.max(IntervalMeans)
+```
+This means the time interval which on average produces the largest number of steps corresponds to minutes 515-520.  Assuming time intervals start at midnight, this corresponds to the time period 8:35-8:40AM.  The corresponding average step value corresponding to this time interval is 
+```{r}
+IntervalMeans[104]
 ```
 
 ## Imputing missing values
@@ -165,7 +187,6 @@ for (j in locator){
 
 Our previous code works to count the number of steps in a day:
 ```{r}
-
 IStepsPerDay<- as.numeric()
 for (j in Days ) {
   istepsdata <- subset(Idata, Idata$date==j)
@@ -189,7 +210,7 @@ As is clear from the above, the mean and the median for the clean and imputed da
 sum(RIntervalMeans)
 ```
 
-This number is less that the mean and the median of the clean data and thus it is not surprising that we get a lower mean and 
+This number is less than the mean and the median of the clean data and thus it is not surprising that we get a lower mean and 
 median for the imputed data.  We can compute the mean of the imputed data using the mean of the clean data:  
 ```{r}
 ((8*sum(RIntervalMeans)) + 53*CleanMean)/61
@@ -206,7 +227,7 @@ To parse the data in terms of weekdays, we will use the lubridate package:
 library(lubridate)
 ```
 
-Next, we create a logical using the functionality of lubridate:
+We create a logical using the functionality of lubridate:
 
 ```{r}
 weekdaydata2<-wday(ddate)
@@ -233,7 +254,7 @@ IWeekenddata <- subset(IWdata, Weekend==1)
 IWeekdaydata <- subset(IWdata, Weekend==0)
 ```
 
-We can now use our previous code to give daily activity charts for weeknds and weekdays.
+We can now use our previous code to give daily activity charts for weekends and weekdays.
 
 First, we compute the number of weekend days and the number of weekdays:
 
@@ -249,7 +270,7 @@ IntervalMeansWeekend<-numeric()
 for (j in 1:288) {
   jtotal<- 0
   for (i in 1:NWeekend) { 
-  	jtotal<- jtotal+ IWeekenddata$steps[j*i]}
+  	jtotal<- jtotal+ IWeekenddata$steps[j+ 288*(i-1)]}
 	IntervalMeansWeekend<- c(IntervalMeansWeekend, as.numeric(jtotal)/NWeekend)
 }
 
@@ -257,7 +278,7 @@ IntervalMeansWeekday<-numeric()
 for (j in 1:288) {
   jtotal<- 0
   for (i in 1:NWeekday) { 
-  	jtotal<- jtotal+ IWeekdaydata$steps[j*i]}
+  	jtotal<- jtotal+ IWeekdaydata$steps[j+ 288*(i-1)]}
 	IntervalMeansWeekday<- c(IntervalMeansWeekday, as.numeric(jtotal)/NWeekday)
 }
 ```
@@ -271,8 +292,36 @@ plot(1:288, IntervalMeansWeekday, type="l", xlab="Interval number",
 ylab="Average Number of Steps", main="Average Step Number by Interval For Weekday")
 ```
 
+As was the case above, this calculation can be vectorized.  We begin by numbering intervals for each day of data
+```{r}
+IC<-rep(1:288,61)
+IWD<- cbind(IWdata,IC)
+```
+Now compute means using sapply:
+```{r}
+IDWE<- sapply(1:288, function(x) mean(subset(IWD, (IWD[,5]==x) & (IWD[,4]==1))[,1]))
+IDWD<- sapply(1:288, function(x) mean(subset(IWD, (IWD[,5]==x) & (IWD[,4]==0))[,1]))
+```
+Construct a data frame which we can feed to the lattice package:
+```{r}
+m1<- cbind(1:288, IDWE, rep(1,288))
+m2<- cbind(1:288, IDWD, rep(0,288))
+M<- rbind(m1,m2)
+colnames(M)<- c("interval", "step", "we")
+M<-as.data.frame(M)
+M$we<- as.factor(M$we)
+weekend<- sapply(M$we, function(x) if (x==1) as.factor("weekend") else as.factor("weekday"))
+M$we<- weekend
+```
+We use the lattice package to produce the final panel plots:
+```{r}
+library(lattice)
+xyplot(M$step ~ M$interval | M$we, type= "l", xlab= "Interval number", ylab= "Average numberof steps"
+, main= "Average number of steps taken over five minute intervals")##, layout= C(2,1))
+```
 
 
+This checks with our previous computation and completes the project.
 
 
 
